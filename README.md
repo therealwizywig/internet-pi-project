@@ -1,12 +1,25 @@
+## 🚀 Quick Start: Install on Raspberry Pi
 # internet-pi-project
 To track uptime of the device along with the speed and latency of the internet
 
-Step 1: Make the script executable and run it:
+To install Internet Pi on a fresh Raspberry Pi, just run the following commands in your terminal:
+Make the script executable and run it:
 
-Bash
-chmod +x ~/network_stats/setup_monitor.sh
-chmod +x ~/network_stats/monitor.py
+```bash
+# Clone the repository
+sudo apt-get update && sudo apt-get install -y git
+# You can use any directory you like, e.g. $HOME/internet-pi
+cd $HOME
+
+git clone https://github.com/CruGlobal/internet-pi.git
+
+cd internet-pi-project
+
+chmod +x ~/network_stats/setup_monitor.sh  ~/network_stats/monitor.py
+
 sudo ~/network_stats/setup_monitor.sh
+```
 
+Note:
 This script requests your custom Device ID, generates your configuration environment file, and installs all core dependencies:
 
