@@ -5,6 +5,7 @@ import csv
 import json
 import subprocess
 import re
+import time
 from datetime import datetime, timezone
 import requests
 
@@ -18,9 +19,7 @@ INGEST_HEADERS = {
     "Content-Type": "application/json",
     "X-Ingest-Key": "UDE_rex!qhp*eby6kry"
 }
-ZEROTIER_NETWORK_ID = "633e31d8a24687c7"
 
-# Updatable target map
 TARGET_SERVERS = {
     "google": "google.com",
     "github": "github.com",
@@ -30,9 +29,19 @@ TARGET_SERVERS = {
 NETSUITE_URL = "https://signon.okta.com/app/netsuite/exk1jbjbbur8wkLJT0h8/sso/saml/metadata"
 STATIC_SPEEDTEST_SERVER = None
 
+# --- PROGRESS BAR UTILITY ---
+def update_progress(percent, status_text=""):
+    """Renders a clean, live terminal progress bar."""
+    bar_length = 30
+    filled_length = int(round(bar_length * percent / 100.0))
+    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+    
+    status_text = status_text.ljust(35)
+    sys.stdout.write(f"\r[{bar}] {percent}% | {status_text}")
+    sys.stdout.flush()
+
 # --- DYNAMIC CONFIGURATION LOADER ---
 def load_device_id():
-    """Reads the custom device ID string out of the environment config file."""
     default_fallback = "test-device-default"
     if not os.path.exists(ENV_FILE):
         return default_fallback
@@ -40,7 +49,6 @@ def load_device_id():
         with open(ENV_FILE, 'r') as f:
             for line in f:
                 if line.strip().startswith("DEVICE_ID="):
-                    # Extract string cleanly inside quotes
                     match = re.search(r'DEVICE_ID=["\']?([^"\']+)["\']?', line)
                     if match:
                         return match.group(1)
@@ -100,63 +108,54 @@ def run_speedtest():
     except Exception:
         return 0.0, 0.0
 
-def get_zerotier_telemetry():
-    zt_data = {"zt_node_id": "unknown", "zt_status": "OFFLINE", "zt_assigned_ip": "none"}
-    try:
-        info_res = subprocess.run(["sudo", "zerotier-cli", "info"], capture_output=True, text=True, timeout=5)
-        if info_res.returncode == 0:
-            match = re.search(r"info (\w+)", info_res.stdout)
-            if match: zt_data["zt_node_id"] = match.group(1)
-
-        net_res = subprocess.run(["sudo", "zerotier-cli", "listnetworks"], capture_output=True, text=True, timeout=5)
-        if net_res.returncode == 0:
-            for line in net_res.stdout.splitlines():
-                if ZEROTIER_NETWORK_ID in line:
-                    parts = line.split()
-                    if len(parts) >= 4: zt_data["zt_status"] = parts[3]
-                    if len(parts) >= 7 and parts[6] != "-":
-                        zt_data["zt_assigned_ip"] = parts[6].split('/')[0]
-                    break
-    except Exception:
-        pass
-    return zt_data
-
 # --- MAIN EXECUTION ---
 def main():
+    show_progress = sys.stdout.isatty()
+
+    if show_progress: update_progress(5, "Checking for Git updates...")
     update_from_git()
     
-    # Dynamically read current Device ID setting
+    if show_progress: update_progress(15, "Loading configuration...")
     device_id = load_device_id()
-    
     timestamp = get_utc_timestamp()
     uptime_sec = get_uptime_seconds()
-    netsuite_status = probe_netsuite()
-    zt_metrics = get_zerotier_telemetry()
     
     payload = {
         "device_id": device_id,
         "ping_timestamp": timestamp,
         "pi_uptime": uptime_sec,
-        "netsuite_status": netsuite_status,
-        "zerotier_node_id": zt_metrics["zt_node_id"],
-        "zerotier_status": zt_metrics["zt_status"],
-        "zerotier_ip": zt_metrics["zt_assigned_ip"]
     }
     
     is_offline = True
-    for key, host in TARGET_SERVERS.items():
+    total_servers = len(TARGET_SERVERS)
+    
+    for idx, (key, host) in enumerate(TARGET_SERVERS.items(), 1):
+        if show_progress: 
+            current_pct = int(15 + (40 * (idx / total_servers)))
+            update_progress(current_pct, f"Pinging {host}...")
+            
         latency, loss = parse_ping(host)
         payload[f"ping_latency_{key}"] = latency
         payload[f"ping_loss_{key}"] = loss
         if loss < 100.0:
             is_offline = False
 
-    download, upload = (0.0, 0.0) if is_offline else run_speedtest()
+    if show_progress: update_progress(60, "Probing NetSuite Status...")
+    payload["netsuite_status"] = probe_netsuite()
+
+    if is_offline:
+        download, upload = 0.0, 0.0
+        if show_progress: update_progress(90, "Network offline. Skipping Speedtest.")
+    else:
+        if show_progress: update_progress(70, "Running Speedtest (takes a moment)...")
+        download, upload = run_speedtest()
+        
     payload["download_mbps"] = download
     payload["upload_mbps"] = upload
     payload["wan_status"] = "Online" if not is_offline else "Offline"
 
-    # --- WEAR-LEVELING IN-RAM STORAGE RETRY LOGIC ---
+    if show_progress: update_progress(95, "Uploading telemetry...")
+    
     upload_success = False
     try:
         response = requests.post(INGEST_URL, json=payload, headers=INGEST_HEADERS, timeout=10)
@@ -174,7 +173,11 @@ def main():
                     writer.writeheader()
                 writer.writerow(payload)
         except Exception as e:
-            print(f"Failed writing to local safety buffer: {e}", file=sys.stderr)
+            print(f"\nFailed writing to local safety buffer: {e}", file=sys.stderr)
+
+    if show_progress: 
+        update_progress(100, "Done!")
+        print() 
 
 if __name__ == "__main__":
     main()
