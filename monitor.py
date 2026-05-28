@@ -25,13 +25,16 @@ def load_targets():
     try:
         with open(TARGETS_FILE, 'r') as f:
             data = json.load(f)
-        return data.get("target_servers", {}), data.get("netsuite_url", "")
+        return (
+            data.get("target_servers", {}),
+            data.get("netsuite_url", ""),
+            data.get("speedtest_servers", [{"label": "auto"}]),
+        )
     except Exception as e:
         print(f"Warning: could not load {TARGETS_FILE}: {e}", file=sys.stderr)
-        return {}, ""
+        return {}, "", [{"label": "auto"}]
 
-TARGET_SERVERS, NETSUITE_URL = load_targets()
-STATIC_SPEEDTEST_SERVER = None
+TARGET_SERVERS, NETSUITE_URL, SPEEDTEST_SERVERS = load_targets()
 
 # --- PROGRESS BAR UTILITY ---
 def update_progress(percent, status_text=""):
@@ -98,10 +101,10 @@ def probe_netsuite():
     except requests.exceptions.RequestException:
         return 0
 
-def run_speedtest():
+def run_speedtest(server_id=None):
     cmd = ["speedtest-cli", "--simple"]
-    if STATIC_SPEEDTEST_SERVER:
-        cmd.extend(["--server", str(STATIC_SPEEDTEST_SERVER)])
+    if server_id:
+        cmd.extend(["--server", str(server_id)])
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if res.returncode != 0:
@@ -148,14 +151,23 @@ def main():
     payload["netsuite_status"] = probe_netsuite()
 
     if is_offline:
-        download, upload = 0.0, 0.0
+        for st in SPEEDTEST_SERVERS:
+            label = st["label"]
+            payload[f"download_mbps_{label}"] = 0.0
+            payload[f"upload_mbps_{label}"] = 0.0
         if show_progress: update_progress(90, "Network offline. Skipping Speedtest.")
     else:
-        if show_progress: update_progress(70, "Running Speedtest (takes a moment)...")
-        download, upload = run_speedtest()
-        
-    payload["download_mbps"] = download
-    payload["upload_mbps"] = upload
+        total_st = len(SPEEDTEST_SERVERS)
+        for idx, st in enumerate(SPEEDTEST_SERVERS, 1):
+            label = st["label"]
+            server_id = st.get("id")
+            pct = int(70 + (20 * (idx / total_st)))
+            status = f"Speedtest ({label})..."
+            if show_progress: update_progress(pct, status)
+            download, upload = run_speedtest(server_id)
+            payload[f"download_mbps_{label}"] = download
+            payload[f"upload_mbps_{label}"] = upload
+
     payload["wan_status"] = "Online" if not is_offline else "Offline"
 
     if show_progress: update_progress(95, "Uploading telemetry...")
