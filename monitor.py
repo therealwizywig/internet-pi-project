@@ -102,18 +102,21 @@ def probe_netsuite():
         return 0
 
 def run_speedtest(server_id=None):
-    cmd = ["speedtest-cli", "--simple"]
+    cmd = ["speedtest-cli", "--json"]
     if server_id:
         cmd.extend(["--server", str(server_id)])
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if res.returncode != 0:
-            return 0.0, 0.0
-        down = re.search(r"Download:\s+([\d\.]+)", res.stdout)
-        up = re.search(r"Upload:\s+([\d\.]+)", res.stdout)
-        return float(down.group(1)) if down else 0.0, float(up.group(1)) if up else 0.0
+            return 0.0, 0.0, ""
+        data = json.loads(res.stdout)
+        download = round(data.get("download", 0) / 1_000_000, 2)
+        upload = round(data.get("upload", 0) / 1_000_000, 2)
+        server = data.get("server", {})
+        server_name = f"{server.get('sponsor', '')} ({server.get('name', '')})".strip(" ()")
+        return download, upload, server_name
     except Exception:
-        return 0.0, 0.0
+        return 0.0, 0.0, ""
 
 # --- MAIN EXECUTION ---
 def main():
@@ -155,6 +158,7 @@ def main():
             label = st["label"]
             payload[f"download_mbps_{label}"] = 0.0
             payload[f"upload_mbps_{label}"] = 0.0
+            payload[f"speedtest_server_{label}"] = ""
         if show_progress: update_progress(90, "Network offline. Skipping Speedtest.")
     else:
         total_st = len(SPEEDTEST_SERVERS)
@@ -164,9 +168,10 @@ def main():
             pct = int(70 + (20 * (idx / total_st)))
             status = f"Speedtest ({label})..."
             if show_progress: update_progress(pct, status)
-            download, upload = run_speedtest(server_id)
+            download, upload, server_name = run_speedtest(server_id)
             payload[f"download_mbps_{label}"] = download
             payload[f"upload_mbps_{label}"] = upload
+            payload[f"speedtest_server_{label}"] = server_name
 
     payload["wan_status"] = "Online" if not is_offline else "Offline"
 
