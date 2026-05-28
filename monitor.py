@@ -97,9 +97,21 @@ def parse_ping(host):
 def probe_netsuite():
     try:
         response = requests.get(NETSUITE_URL, timeout=5)
-        return 1 if response.status_code == 200 else 0
+        if response.status_code >= 400:
+            return "error"
+        if response.history:
+            return "redirected"
+        return "reached"
+    except requests.exceptions.SSLError:
+        return "ssl_error"
+    except requests.exceptions.ConnectionError as e:
+        if "NameResolutionError" in str(e) or "Name or service not known" in str(e):
+            return "dns_failed"
+        return "failed"
+    except requests.exceptions.Timeout:
+        return "timeout"
     except requests.exceptions.RequestException:
-        return 0
+        return "failed"
 
 def run_speedtest(server_id=None):
     cmd = ["speedtest-cli", "--json"]
