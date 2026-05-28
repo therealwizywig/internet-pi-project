@@ -13,6 +13,7 @@ import requests
 CSV_FILE = os.path.expanduser("~/network_stats/speedtest_results.csv")
 REPO_DIR = os.path.expanduser("~/network_stats/repo")
 ENV_FILE = os.path.expanduser("~/network_stats/device_env.conf")
+TARGETS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "targets.json")
 
 INGEST_URL = "https://telemetry-ingest-32461014139.us-central1.run.app/telemetry"
 INGEST_HEADERS = {
@@ -20,13 +21,16 @@ INGEST_HEADERS = {
     "X-Ingest-Key": "UDE_rex!qhp*eby6kry"
 }
 
-TARGET_SERVERS = {
-    "google": "google.com",
-    "github": "github.com",
-    "apple": "apple.com",
-    "microsoft": "download.windowsupdate.com"
-}
-NETSUITE_URL = "https://signon.okta.com/app/netsuite/exk1jbjbbur8wkLJT0h8/sso/saml/metadata"
+def load_targets():
+    try:
+        with open(TARGETS_FILE, 'r') as f:
+            data = json.load(f)
+        return data.get("target_servers", {}), data.get("netsuite_url", "")
+    except Exception as e:
+        print(f"Warning: could not load {TARGETS_FILE}: {e}", file=sys.stderr)
+        return {}, ""
+
+TARGET_SERVERS, NETSUITE_URL = load_targets()
 STATIC_SPEEDTEST_SERVER = None
 
 # --- PROGRESS BAR UTILITY ---
