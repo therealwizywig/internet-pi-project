@@ -5,7 +5,7 @@
         "apple": "apple.com",
         "microsoft": "download.windowsupdate.com"
     },
-    "netsuite_url": "https://signon.okta.com/app/netsuite/exk1jbjbbur8wkLJT0h8/sso/saml/metadata",
+    "netsuite_url": "https://system.netsuite.com/",
     "speedtest_servers": [
         {"label": "auto"},
         {"label": "10050", "id": 10050}
