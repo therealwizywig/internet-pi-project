@@ -6,7 +6,8 @@
         "microsoft": "download.windowsupdate.com"
     },
     "probe_urls": {
-        "netsuite": "https://system.netsuite.com/"
+        "netsuite": "https://system.netsuite.com/",
+        "salesforce": "https://login.salesforce.com/"
     },
     "speedtest_servers": [
         {"label": "auto"},
