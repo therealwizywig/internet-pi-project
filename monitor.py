@@ -81,6 +81,52 @@ def update_from_git():
         except Exception:
             pass
 
+def get_connection_info():
+    try:
+        res = subprocess.run(["ip", "route", "get", "8.8.8.8"], capture_output=True, text=True)
+        match = re.search(r"dev\s+(\S+)", res.stdout)
+        if not match:
+            return "unknown", "unknown"
+        iface = match.group(1)
+
+        if iface.startswith("wlan") or iface.startswith("wl"):
+            conn_type = "wifi"
+            iw = subprocess.run(["iw", "dev", iface, "link"], capture_output=True, text=True)
+            out = iw.stdout
+            if "EHT" in out:
+                speed = "WiFi 7"
+            elif "HE" in out:
+                freq_match = re.search(r"freq:\s+(\d+)", out)
+                speed = "WiFi 6E" if freq_match and int(freq_match.group(1)) >= 5925 else "WiFi 6"
+            elif "VHT" in out:
+                speed = "WiFi 5"
+            elif "HT" in out:
+                speed = "WiFi 4"
+            else:
+                speed = "WiFi"
+        elif iface.startswith("eth") or iface.startswith("en"):
+            conn_type = "ethernet"
+            with open(f"/sys/class/net/{iface}/speed") as f:
+                mbps = int(f.read().strip())
+            speed_map = {10: "10 Mbps", 100: "100 Mbps", 1000: "Gigabit",
+                         2500: "2.5 Gigabit", 5000: "5 Gigabit", 10000: "10 Gigabit",
+                         25000: "25 Gigabit", 40000: "40 Gigabit", 100000: "100 Gigabit"}
+            speed = speed_map.get(mbps, f"{mbps} Mbps")
+        else:
+            conn_type = iface
+            speed = "unknown"
+
+        return conn_type, speed
+    except Exception:
+        return "unknown", "unknown"
+
+def get_external_ip_info():
+    try:
+        data = requests.get("https://ipinfo.io/json", timeout=5).json()
+        return data.get("ip", ""), data.get("city", "")
+    except Exception:
+        return "", ""
+
 def parse_ping(host):
     try:
         res = subprocess.run(["ping", "-c", "5", "-W", "5", host], capture_output=True, text=True)
@@ -146,11 +192,19 @@ def main():
     device_id = load_device_id()
     timestamp = get_utc_timestamp()
     uptime_sec = get_uptime_seconds()
-    
+
+    if show_progress: update_progress(20, "Getting external IP...")
+    external_ip, external_city = get_external_ip_info()
+    connection_type, connection_speed = get_connection_info()
+
     payload = {
         "device_id": device_id,
         "ping_timestamp": timestamp,
         "pi_uptime": uptime_sec,
+        "external_ip": external_ip,
+        "external_city": external_city,
+        "connection_type": connection_type,
+        "connection_speed": connection_speed,
     }
     
     is_offline = True
