@@ -27,14 +27,14 @@ def load_targets():
             data = json.load(f)
         return (
             data.get("target_servers", {}),
-            data.get("netsuite_url", ""),
+            data.get("probe_urls", {}),
             data.get("speedtest_servers", [{"label": "auto"}]),
         )
     except Exception as e:
         print(f"Warning: could not load {TARGETS_FILE}: {e}", file=sys.stderr)
-        return {}, "", [{"label": "auto"}]
+        return {}, {}, [{"label": "auto"}]
 
-TARGET_SERVERS, NETSUITE_URL, SPEEDTEST_SERVERS = load_targets()
+TARGET_SERVERS, PROBE_URLS, SPEEDTEST_SERVERS = load_targets()
 
 # --- PROGRESS BAR UTILITY ---
 def update_progress(percent, status_text=""):
@@ -94,10 +94,10 @@ def parse_ping(host):
     except Exception:
         return 0.0, 100.0
 
-def probe_netsuite():
+def probe_netsuite(url):
     try:
         res = subprocess.run(
-            ["python3", "-c", f"import requests; print(requests.get('{NETSUITE_URL}').status_code)"],
+            ["python3", "-c", f"import requests; print(requests.get('{url}').status_code)"],
             capture_output=True, text=True, timeout=10
         )
         if res.returncode != 0:
@@ -167,8 +167,12 @@ def main():
         if loss < 100.0:
             is_offline = False
 
-    if show_progress: update_progress(60, "Probing NetSuite Status...")
-    payload["netsuite_status"] = probe_netsuite()
+    total_probes = len(PROBE_URLS)
+    for idx, (key, url) in enumerate(PROBE_URLS.items(), 1):
+        if show_progress:
+            current_pct = int(55 + (10 * (idx / total_probes)))
+            update_progress(current_pct, f"Probing {key}...")
+        payload[f"probe_{key}"] = probe_netsuite(url)
 
     if is_offline:
         for st in SPEEDTEST_SERVERS:
